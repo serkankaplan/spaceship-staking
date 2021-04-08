@@ -37,6 +37,11 @@ contract SpaceshipStacking is AccessControl {
         uint256 indexed missionId
     );
 
+    event MissionStarted(
+        uint256 indexed missionId,
+        address indexed user
+    );
+
     event MissionDisabled(
         uint256 indexed missionId
     );
@@ -90,20 +95,20 @@ contract SpaceshipStacking is AccessControl {
     function startMission(uint256 missionId, uint16 spaceShipCount) external payable {
         require(spaceShipCount > 0, "You must send at least one ship.");
         Mission storage mission = missions[missionId];
-        require(mission.isActive, "Mission must be active");
-        require(mission.startDate > block.timestamp, "Mission has not started yet.");
-        require(mission.launchDate < block.timestamp, "Mission has already launched.");
+        require(mission.isActive, "Mission must be active.");
+        require(mission.startDate < block.timestamp, "Mission has not started yet.");
+        require(mission.launchDate > block.timestamp, "Mission has been already launched.");
 
         tlm.transferFrom(msg.sender, address(this), mission.missionCost * spaceShipCount);
-        if(launchedMissions[msg.sender][missionId].length == 0) {
+        if (launchedMissions[msg.sender][missionId].length == 0) {
             userLaunchedMissionIds[msg.sender].push(missionId);
         }
 
-        if(usersLaunchedMissionControl[msg.sender] == false) {
+        if (usersLaunchedMissionControl[msg.sender] == false) {
             usersLaunchedMissionControl[msg.sender] = true;
             usersLaunchedMission.push(msg.sender);
         }
-
+        console.log("BNB staked", msg.value);
         launchedMissions[msg.sender][missionId].push(LaunchedMission({
         launchTime : block.timestamp,
         bnbStake : msg.value,
@@ -111,6 +116,10 @@ contract SpaceshipStacking is AccessControl {
         rewardClaimed : false,
         tokenMinted : false
         }));
+        emit  MissionStarted(
+            missionId,
+            msg.sender
+        );
     }
 
     function getMissionCount() public view returns (uint256) {
@@ -119,5 +128,21 @@ contract SpaceshipStacking is AccessControl {
 
     function getLaunchedMissionIdsCountForUser(address user) public view returns (uint256) {
         return userLaunchedMissionIds[user].length;
+    }
+
+    function getLaunchedMissionPerMissionIdsCountForUser(address user, uint256 missionId) public view returns (uint256) {
+        return launchedMissions[user][missionId].length;
+    }
+
+    function getUsersLaunchedMission() public view returns (uint256) {
+        return usersLaunchedMission.length;
+    }
+
+    function getLaunchedMissionOfUser(address user, uint256 missionId, uint256 index) public view returns (uint256, uint256, uint16, bool, bool) {
+        return (launchedMissions[user][missionId][index].launchTime,
+        launchedMissions[user][missionId][index].bnbStake,
+        launchedMissions[user][missionId][index].spaceShipCount,
+        launchedMissions[user][missionId][index].rewardClaimed,
+        launchedMissions[user][missionId][index].tokenMinted);
     }
 }
