@@ -19,16 +19,15 @@ contract SpaceshipStacking is AccessControl {
         uint256 rewardTLM;
         uint256 missionCost;
         uint256 missionLength;
-        uint16[] bnbSuperCharge;
+        uint256[] bnbSuperCharge;
         string description;
         string name;
         bool isActive;
     }
 
     struct LaunchedMission {
-        uint256 launchTime;
         uint256 bnbStake;
-        uint16 spaceShipCount;
+        uint256 spaceShipCount;
         bool rewardClaimed;
         bool tokenMinted;
     }
@@ -41,6 +40,12 @@ contract SpaceshipStacking is AccessControl {
         uint256 indexed missionId,
         address indexed user
     );
+
+    event RewardClaimed(
+        uint256 indexed missionId,
+        address indexed user
+    );
+
 
     event MissionDisabled(
         uint256 indexed missionId
@@ -62,7 +67,7 @@ contract SpaceshipStacking is AccessControl {
     *
     *
     */
-    function addMission(uint256 start, uint256 launchDate, uint256 rewardTLM, uint256 missionCost, uint256 missionLength, uint16[] memory bnbSuperCharge, string memory description, string memory name) external {
+    function addMission(uint256 start, uint256 launchDate, uint256 rewardTLM, uint256 missionCost, uint256 missionLength, uint256[] memory bnbSuperCharge, string memory description, string memory name) external {
         require(hasRole(DEFAULT_ADMIN_ROLE, _msgSender()), "SpaceshipStacking: must have admin role to add mission.");
         require(bnbSuperCharge.length == 4, "BNB supercharge config array must be 4 elements.");
 
@@ -92,14 +97,13 @@ contract SpaceshipStacking is AccessControl {
         emit MissionDisabled(missionId);
     }
 
-    function startMission(uint256 missionId, uint16 spaceShipCount) external payable {
+    function startMission(uint256 missionId, uint256 spaceShipCount) external payable {
         require(spaceShipCount > 0, "You must send at least one ship.");
         Mission storage mission = missions[missionId];
         require(mission.isActive, "Mission must be active.");
         require(mission.startDate < block.timestamp, "Mission has not started yet.");
         require(mission.launchDate > block.timestamp, "Mission has been already launched.");
-
-        tlm.transferFrom(msg.sender, address(this), mission.missionCost * spaceShipCount);
+        tlm.transferFrom(msg.sender, address(this), mission.missionCost.mul(spaceShipCount));
         if (launchedMissions[msg.sender][missionId].length == 0) {
             userLaunchedMissionIds[msg.sender].push(missionId);
         }
@@ -108,18 +112,42 @@ contract SpaceshipStacking is AccessControl {
             usersLaunchedMissionControl[msg.sender] = true;
             usersLaunchedMission.push(msg.sender);
         }
-        console.log("BNB staked", msg.value);
-        launchedMissions[msg.sender][missionId].push(LaunchedMission({
-        launchTime : block.timestamp,
-        bnbStake : msg.value,
-        spaceShipCount : spaceShipCount,
-        rewardClaimed : false,
-        tokenMinted : false
-        }));
+        LaunchedMission memory launchedMission;
+        launchedMission.bnbStake = msg.value;
+        launchedMission.spaceShipCount = spaceShipCount;
+
+        launchedMissions[msg.sender][missionId].push(launchedMission);
         emit  MissionStarted(
             missionId,
             msg.sender
         );
+    }
+
+    function claimReward(uint256 missionId, uint256 missionIndex) external {
+        Mission storage mission = missions[missionId];
+        require(block.timestamp > mission.launchDate.add(mission.missionLength), "Mission has not finished yet.");
+        LaunchedMission storage launchedMission = launchedMissions[msg.sender][missionId][missionIndex];
+        require(launchedMission.rewardClaimed == false, "Mission reward has already been claimed.");
+
+        launchedMission.rewardClaimed = true;
+        uint256 reward = launchedMission.spaceShipCount.mul(mission.rewardTLM).mul(calculateBoostMultiplier(mission.bnbSuperCharge, launchedMission.bnbStake));
+        uint256 totalTlmToTransferBack = mission.missionCost.mul(launchedMission.spaceShipCount).add(reward);
+        tlm.transfer(msg.sender, totalTlmToTransferBack);
+        msg.sender.send(launchedMission.bnbStake);
+
+        emit  RewardClaimed(
+            missionId,
+            msg.sender
+        );
+    }
+
+    function calculateBoostMultiplier(uint256[] memory bnbSuperCharge, uint256 bnbValue) public pure returns (uint256){
+        for (uint i = bnbSuperCharge.length; i > 0; i--) {
+            if (bnbValue > bnbSuperCharge[i - 1]) {
+                return i + 1;
+            }
+        }
+        return 1;
     }
 
     function getMissionCount() public view returns (uint256) {
@@ -138,9 +166,8 @@ contract SpaceshipStacking is AccessControl {
         return usersLaunchedMission.length;
     }
 
-    function getLaunchedMissionOfUser(address user, uint256 missionId, uint256 index) public view returns (uint256, uint256, uint16, bool, bool) {
-        return (launchedMissions[user][missionId][index].launchTime,
-        launchedMissions[user][missionId][index].bnbStake,
+    function getLaunchedMissionOfUser(address user, uint256 missionId, uint256 index) public view returns (uint256, uint256, bool, bool) {
+        return (launchedMissions[user][missionId][index].bnbStake,
         launchedMissions[user][missionId][index].spaceShipCount,
         launchedMissions[user][missionId][index].rewardClaimed,
         launchedMissions[user][missionId][index].tokenMinted);
