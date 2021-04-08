@@ -61,12 +61,17 @@ contract SpaceshipStacking is AccessControl {
     Mission[] public missions;
 
 
-    /*
-    *
-    *
-    *
-    *
-    */
+    /** @dev add mission with configurations
+     *
+     * Emits a {MissionAdded} event
+     *
+     *
+     * Requirements:
+     *
+     * Admin only access
+     * bnbSuperCharge array must be 4 elements
+     *
+     */
     function addMission(uint256 start, uint256 launchDate, uint256 rewardTLM, uint256 missionCost, uint256 missionLength, uint256[] memory bnbSuperCharge, string memory description, string memory name) external {
         require(hasRole(DEFAULT_ADMIN_ROLE, _msgSender()), "SpaceshipStacking: must have admin role to add mission.");
         require(bnbSuperCharge.length == 4, "BNB supercharge config array must be 4 elements.");
@@ -88,6 +93,16 @@ contract SpaceshipStacking is AccessControl {
         emit MissionAdded(missionId);
     }
 
+    /** @dev Disables a mission which will close it to start mission
+     *
+     * Emits a {MissionDisabled} event
+     *
+     *
+     * Requirements:
+     *
+     * Admin only access
+     *
+     */
     function disableMission(uint256 missionId) external {
         require(hasRole(DEFAULT_ADMIN_ROLE, _msgSender()), "SpaceshipStacking: must have admin role to disable mission");
 
@@ -97,6 +112,19 @@ contract SpaceshipStacking is AccessControl {
         emit MissionDisabled(missionId);
     }
 
+    /** @dev Starts a mission between start and launch time
+     *
+     * Emits a {MissionStarted} event
+     *
+     * User can send BNB to boost TLM rewards.
+     +
+     * Requirements:
+     *
+     * If not before launch date time then error
+     * If Spaceships and TLM amount do not match then error
+     * If Mission Ref/Number not valid then error
+     *
+     */
     function startMission(uint256 missionId, uint256 spaceShipCount) external payable {
         require(spaceShipCount > 0, "You must send at least one ship.");
         Mission storage mission = missions[missionId];
