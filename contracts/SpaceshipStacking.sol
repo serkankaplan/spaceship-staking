@@ -151,6 +151,16 @@ contract SpaceshipStacking is AccessControl {
         );
     }
 
+    /** @dev claims mission reward after mission ends
+     *  user gets staked TLM tokens and reward plus staked BNB coins
+     * Emits a {RewardClaimed} event
+     *
+     * Requirements:
+     *
+     * User can not claim reward twice
+     * Blocktime must be mission launchDate plus missionLength
+     *
+     */
     function claimReward(uint256 missionId, uint256 missionIndex) external {
         Mission storage mission = missions[missionId];
         require(block.timestamp > mission.launchDate.add(mission.missionLength), "Mission has not finished yet.");
