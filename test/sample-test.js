@@ -5,6 +5,8 @@ const DummyERC721 = artifacts.require("DummyERC721");
 const SpaceshipStacking = artifacts.require("SpaceshipStacking");
 
 
+
+
 describe("ERC721", function () {
     var dummyERC20;
     var dummyERC721;
@@ -248,32 +250,28 @@ describe("ERC721", function () {
         expect(launchedMissionOfUser[1].toNumber()).to.equal(shipCountSecondMission);
         expect(launchedMissionOfUser[2]).to.equal(false);
         expect(launchedMissionOfUser[3]).to.equal(false);
-
     });
 
     it("Should be able to claim reward from the Staking contract", async function () {
-        const spaceshipStacking = await SpaceshipStacking.new(dummyERC20.address);
-
-        const [owner, addr1] = await web3.eth.getAccounts();
-
-        const missionCost = 1000;
-        const shipCount = 3;
-
-        await dummyERC20.transfer(spaceshipStacking.address, 10000);
-        const receipt = await spaceshipStacking.addMission(Math.floor(Date.now() / 1000),
-            Math.floor(Date.now() / 1000) + 60 * 60 * 48,
-            100, missionCost, 10 * 60,
-            [(5 * 10 ** 18).toString(), (10 * 10 ** 18).toString(), (50 * 10 ** 18).toString(), (250 * 10 ** 18).toString()],
-            "an awesome mission with big profit", "First Mission");
-        const missionId = receipt.logs[0].args.missionId.toNumber();
-        time.increase(60 * 60);
-
-        await startMission(dummyERC20, addr1, missionId,  missionCost, shipCount, spaceshipStacking, web3.utils.toWei("10", "ether"));
-        time.increase( 60 * 60 * 48 + 10 * 60);
-        const receiptClaim = await spaceshipStacking.claimReward(missionId, 0, {from: addr1})
-        expectEvent(receiptClaim, 'RewardClaimed', {missionId: missionId.toString(), user: addr1});
-
+        await testTLMRewardBoost(dummyERC20, "0", 1);
     });
+
+    it("Should be able to claim reward from the Staking contract with 2x boost", async function () {
+        await testTLMRewardBoost(dummyERC20, "5", 2);
+    });
+
+    it("Should be able to claim reward from the Staking contract with 3x boost", async function () {
+        await testTLMRewardBoost(dummyERC20, "10", 3);
+    });
+
+    it("Should be able to claim reward from the Staking contract with 4x boost", async function () {
+        await testTLMRewardBoost(dummyERC20, "50", 4);
+    });
+
+    it("Should be able to claim reward from the Staking contract with 5x boost", async function () {
+        await testTLMRewardBoost(dummyERC20, "250", 5);
+    });
+
 });
 
 async function startMission(dummyERC20, addr1, missionId,  missionCost, shipCount, spaceshipStacking, bnb) {
@@ -283,3 +281,34 @@ async function startMission(dummyERC20, addr1, missionId,  missionCost, shipCoun
     expectEvent(receipt, 'MissionStarted', {missionId: missionId.toString(), user: addr1});
 }
 
+async function addStartAndClaimMission(dummyERC20, spaceshipStacking, reward, missionCost, addr1, shipCount, bnb) {
+    await dummyERC20.transfer(spaceshipStacking.address, 10000);
+    const now = (await web3.eth.getBlock("latest")).timestamp;
+    const receipt = await spaceshipStacking.addMission(now,
+        now+ 60 * 60 * 48,
+        reward, missionCost, 10 * 60,
+        [(5 * 10 ** 18).toString(), (10 * 10 ** 18).toString(), (50 * 10 ** 18).toString(), (250 * 10 ** 18).toString()],
+        "an awesome mission with big profit", "First Mission");
+    const missionId = receipt.logs[0].args.missionId.toNumber();
+    time.increase(10 * 60);
+
+    await startMission(dummyERC20, addr1, missionId, missionCost, shipCount, spaceshipStacking, bnb);
+    time.increase(60 * 60 * 48 + 10 * 60);
+    const receiptClaim = await spaceshipStacking.claimReward(missionId, 0, {from: addr1})
+    expectEvent(receiptClaim, 'RewardClaimed', {missionId: missionId.toString(), user: addr1});
+}
+
+async function testTLMRewardBoost(dummyERC20, bnb, boost) {
+    const spaceshipStacking = await SpaceshipStacking.new(dummyERC20.address);
+
+    const [owner, addr1] = await web3.eth.getAccounts();
+    const initialLMTBalance = await dummyERC20.balanceOf(addr1);
+
+    const missionCost = 1000;
+    const shipCount = 3;
+    const reward = 100;
+    await addStartAndClaimMission(dummyERC20, spaceshipStacking, reward, missionCost, addr1, shipCount, web3.utils.toWei(bnb, "ether"));
+
+    const lmtBalanceAfterClaim = await dummyERC20.balanceOf(addr1);
+    expect(lmtBalanceAfterClaim.toNumber() - initialLMTBalance.toNumber()).to.equal(missionCost * shipCount + shipCount * reward * boost);
+}

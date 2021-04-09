@@ -170,7 +170,8 @@ contract SpaceshipStacking is AccessControl {
         launchedMission.rewardClaimed = true;
         uint256 reward = launchedMission.spaceShipCount.mul(mission.rewardTLM).mul(calculateBoostMultiplier(mission.bnbSuperCharge, launchedMission.bnbStake));
         uint256 totalTlmToTransferBack = mission.missionCost.mul(launchedMission.spaceShipCount).add(reward);
-        tlm.transfer(msg.sender, totalTlmToTransferBack);
+
+    tlm.transfer(msg.sender, totalTlmToTransferBack);
         msg.sender.send(launchedMission.bnbStake);
 
         emit  RewardClaimed(
@@ -181,7 +182,7 @@ contract SpaceshipStacking is AccessControl {
 
     function calculateBoostMultiplier(uint256[] memory bnbSuperCharge, uint256 bnbValue) public pure returns (uint256){
         for (uint i = bnbSuperCharge.length; i > 0; i--) {
-            if (bnbValue > bnbSuperCharge[i - 1]) {
+            if (bnbValue >= bnbSuperCharge[i - 1]) {
                 return i + 1;
             }
         }
