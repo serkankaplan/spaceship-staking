@@ -3,20 +3,23 @@ pragma solidity ^0.7.0;
 import "@openzeppelin/contracts/access/AccessControl.sol";
 import "@openzeppelin/contracts/math/SafeMath.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "hardhat/console.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "./DummyERC721.sol";
 
 contract SpaceshipStacking is AccessControl {
     using SafeMath for uint256;
 
-    constructor(address _tlmAddress) public {
+    constructor(address _tlmAddress, address _erc721) {
         _setupRole(DEFAULT_ADMIN_ROLE, _msgSender());
         tlm = IERC20(_tlmAddress);
+        erc721 = DummyERC721(_erc721);
     }
 
     struct Mission {
         uint256 startDate;
         uint256 launchDate;
         uint256 rewardTLM;
+        string tokenURI;
         uint256 missionCost;
         uint256 missionLength;
         uint256[] bnbSuperCharge;
@@ -29,7 +32,7 @@ contract SpaceshipStacking is AccessControl {
         uint256 bnbStake;
         uint256 spaceShipCount;
         bool rewardClaimed;
-        bool tokenMinted;
+        uint8 tokenMinted;
     }
 
     event MissionAdded(
@@ -52,6 +55,7 @@ contract SpaceshipStacking is AccessControl {
     );
 
     IERC20 public tlm;
+    DummyERC721 public erc721;
 
     mapping(address => mapping(uint256 => LaunchedMission[])) public launchedMissions;
     mapping(address => uint256[]) public userLaunchedMissionIds;
@@ -72,7 +76,7 @@ contract SpaceshipStacking is AccessControl {
      * bnbSuperCharge array must be 4 elements
      *
      */
-    function addMission(uint256 start, uint256 launchDate, uint256 rewardTLM, uint256 missionCost, uint256 missionLength, uint256[] memory bnbSuperCharge, string memory description, string memory name) external {
+    function addMission(uint256 start, uint256 launchDate, uint256 rewardTLM, string memory tokenURI, uint256 missionCost, uint256 missionLength, uint256[] memory bnbSuperCharge, string memory description, string memory name) external {
         require(hasRole(DEFAULT_ADMIN_ROLE, _msgSender()), "SpaceshipStacking: must have admin role to add mission.");
         require(bnbSuperCharge.length == 4, "BNB supercharge config array must be 4 elements.");
 
@@ -82,6 +86,7 @@ contract SpaceshipStacking is AccessControl {
         startDate : start,
         launchDate : launchDate,
         rewardTLM : rewardTLM,
+        tokenURI: tokenURI,
         missionCost : missionCost,
         missionLength : missionLength,
         bnbSuperCharge : bnbSuperCharge,
@@ -165,19 +170,54 @@ contract SpaceshipStacking is AccessControl {
         Mission storage mission = missions[missionId];
         require(block.timestamp > mission.launchDate.add(mission.missionLength), "Mission has not finished yet.");
         LaunchedMission storage launchedMission = launchedMissions[msg.sender][missionId][missionIndex];
+        require(launchedMission.spaceShipCount > 0, "You did not joined the mission.");
         require(launchedMission.rewardClaimed == false, "Mission reward has already been claimed.");
 
         launchedMission.rewardClaimed = true;
         uint256 reward = launchedMission.spaceShipCount.mul(mission.rewardTLM).mul(calculateBoostMultiplier(mission.bnbSuperCharge, launchedMission.bnbStake));
         uint256 totalTlmToTransferBack = mission.missionCost.mul(launchedMission.spaceShipCount).add(reward);
 
-    tlm.transfer(msg.sender, totalTlmToTransferBack);
-        msg.sender.send(launchedMission.bnbStake);
+        tlm.transfer(msg.sender, totalTlmToTransferBack);
+        msg.sender.transfer(launchedMission.bnbStake);
 
         emit  RewardClaimed(
             missionId,
             msg.sender
         );
+    }
+
+    /** @dev claims mission reward token after mission ends
+     *  contracts mints token from set ERC721 contract
+     * ERC721 Emits a {Transfer} event
+     *
+     * Requirements:
+     *
+     * User can not claim token twice.
+     * User has to claim reward first.
+     * User can claim max 5 token from one mission.
+     *
+     */
+    function claimToken(uint256 missionId, uint256 missionIndex) external {
+        LaunchedMission storage launchedMission = launchedMissions[msg.sender][missionId][missionIndex];
+        require(launchedMission.rewardClaimed == true, "Mission reward needs to be claimed first.");
+        require(launchedMission.tokenMinted == 0, "Tokens already minted for this launch.");
+        Mission storage mission = missions[missionId];
+
+        uint8 totalMintedTokens = 0;
+        for (uint i = 0; i < launchedMissions[msg.sender][missionId].length; i++) {
+            totalMintedTokens += launchedMissions[msg.sender][missionId][i].tokenMinted;
+        }
+        require(totalMintedTokens < 5, "You can not get more than 5 tokens for a mission.");
+        uint8 tokenCanBeMint = 5 - totalMintedTokens;
+
+        if (launchedMission.spaceShipCount < tokenCanBeMint) {
+            tokenCanBeMint = uint8(launchedMission.spaceShipCount);
+        }
+        launchedMission.tokenMinted = tokenCanBeMint;
+        for (uint i = 0; i < tokenCanBeMint; i++) {
+            uint256 tokenId = erc721.mint(msg.sender);
+            erc721.setTokenURI(tokenId, mission.tokenURI);
+        }
     }
 
     function calculateBoostMultiplier(uint256[] memory bnbSuperCharge, uint256 bnbValue) public pure returns (uint256){
@@ -205,7 +245,7 @@ contract SpaceshipStacking is AccessControl {
         return usersLaunchedMission.length;
     }
 
-    function getLaunchedMissionOfUser(address user, uint256 missionId, uint256 index) public view returns (uint256, uint256, bool, bool) {
+    function getLaunchedMissionOfUser(address user, uint256 missionId, uint256 index) public view returns (uint256, uint256, bool, uint8) {
         return (launchedMissions[user][missionId][index].bnbStake,
         launchedMissions[user][missionId][index].spaceShipCount,
         launchedMissions[user][missionId][index].rewardClaimed,
